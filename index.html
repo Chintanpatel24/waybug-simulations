@@ -27,17 +27,15 @@
     <div id="legal-screen" class="overlay hidden">
       <pre>
 ╔═══════════════════════════════════════════════════════════╗
-║                        WARNING                            ║
+║                  NIGHTGLASS CASE FILE                     ║
 ╚═══════════════════════════════════════════════════════════╝
 
-You are entering WAUBUG SIMULATIONS - a controlled
-cybersecurity training environment.
+You are entering a fictional black-site incident lab.
 
-- All attacks are simulated and defensive in nature
-- No real systems are targeted
-- All data is synthetic
-- For educational use only
-- Sessions are logged for learning analytics
+- All systems, victims, and malware are synthetic
+- This challenge is investigative and defensive
+- No real companies, phones, or people are involved
+- Hidden folders, encoded clues, and containment tasks are expected
 
 Type 'accept' to continue or 'exit' to leave
       </pre>
@@ -49,55 +47,55 @@ Type 'accept' to continue or 'exit' to leave
 
     <main id="workspace" class="hidden">
       <header class="status-bar">
-        <div>[WAUBUG]</div>
+        <div>[NIGHTGLASS]</div>
         <div>User: <span id="status-user">GHOST-7</span></div>
-        <div>Target: <span id="status-target">training.local</span></div>
-        <div>Anonymity: <span id="status-anon">HIGH</span></div>
+        <div>Node: <span id="status-target">relay-ops</span></div>
+        <div>Tier: <span id="status-anon">BLACK</span></div>
         <div>Time: <span id="status-time">--:--:-- UTC</span></div>
-        <div>Mission: <span id="status-mission">ORIENTATION</span></div>
+        <div>Case: <span id="status-mission">NIGHTGLASS</span></div>
       </header>
 
       <section class="action-bar">
-        <button type="button" class="action-btn" data-action="brief">Mission Brief</button>
-        <button type="button" class="action-btn" data-action="savepoint">Savepoint</button>
-        <button type="button" class="action-btn" data-action="report">Export Report</button>
-        <a class="action-link" href="admin.html">Open Ops Board</a>
+        <button type="button" class="action-btn" data-action="brief">Case Brief</button>
+        <button type="button" class="action-btn" data-action="triage">Triage</button>
+        <button type="button" class="action-btn" data-action="hint">Hint</button>
+        <a class="action-link" href="admin.html">Evidence Board</a>
       </section>
 
       <section class="grid top-row">
         <article class="panel main-terminal" data-panel="terminal">
-          <h2>MAIN TERMINAL</h2>
+          <h2>CASE TERMINAL</h2>
           <div id="terminal-output" class="terminal-output"></div>
           <div class="terminal-input-row">
-            <span>root@waubug:~#</span>
+            <span>analyst@nightglass:~#</span>
             <input id="terminal-input" autocomplete="off" />
           </div>
         </article>
 
         <article class="panel" data-panel="target-map">
-          <h2>TARGET MAP</h2>
+          <h2>NODE GRAPH</h2>
           <pre id="target-map-panel"></pre>
         </article>
 
         <article class="panel" data-panel="process-monitor">
-          <h2>PROCESS MONITOR</h2>
+          <h2>EVIDENCE LOCKER</h2>
           <pre id="process-panel"></pre>
         </article>
       </section>
 
       <section class="grid bottom-row">
         <article class="panel" data-panel="sniffer">
-          <h2>NETWORK SNIFFER</h2>
+          <h2>DIRECTORY WATCH</h2>
           <pre id="sniffer-panel"></pre>
         </article>
 
         <article class="panel" data-panel="event-log">
-          <h2>EVENT LOG</h2>
+          <h2>THREAT FEED</h2>
           <pre id="event-panel"></pre>
         </article>
 
         <article class="panel" data-panel="mission-status">
-          <h2>MISSION STATUS</h2>
+          <h2>OBJECTIVE GRID</h2>
           <pre id="mission-panel"></pre>
         </article>
       </section>
@@ -105,6 +103,7 @@ Type 'accept' to continue or 'exit' to leave
 
     <script src="js/modules.js"></script>
     <script src="js/missions.js"></script>
+    <script src="js/scenario.js"></script>
     <script src="js/storage.js"></script>
     <script src="js/panels.js"></script>
     <script src="js/effects.js"></script>

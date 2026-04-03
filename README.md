@@ -1,54 +1,48 @@
-# WAUBUG SIMULATIONS
+# NIGHTGLASS // BLACK VAULT
 
-WAUBUG is now a pure web app. It runs entirely in the browser with HTML, CSS, JavaScript, and `localStorage`.
+Static browser CTF-style incident response game built with HTML, CSS, and JavaScript.
 
-## What Changed
+## What It Is
 
-- Removed the backend, database, env-based auth, and server-side analytics
-- Removed Docker and platform runtime files
-- Replaced API calls with browser-local savepoints, reports, and event history
-- Turned the old admin screen into a local Ops Board
-- Kept the simulator fully synthetic and defensive
+- A black-theme forensic puzzle
+- A fictional breach case across a workstation and a paired phone backup
+- Hidden folders, encoded clues, victim identification, and containment steps
+- Fully browser-local with `localStorage`
 
-## Browser-Only Features
+## Core Loop
 
-- Persistent local progress in `localStorage`
-- Local hall of fame and savepoints
-- Exportable JSON training reports
-- Mission briefings and tactical intel commands
-- Local Ops Board at `admin.html`
+1. Open the case on `relay-ops`
+2. Pivot into the simulated nodes
+3. Find the hidden ransomware and spyware folders
+4. Decode alpha and beta fragments
+5. Identify the victim
+6. Quarantine both payloads
+7. Submit the final unlock token
 
-## Run It
-
-Open `index.html` directly in a browser, or deploy the folder as static files.
-
-No install, no server, no environment variables.
-
-## Static Deploy
-
-This repo is now ready for static hosting:
-
-- GitHub Pages
-- Vercel static deploy
-- Netlify
-- Cloudflare Pages
-
-## Useful Commands
+## Main Commands
 
 - `brief`
-- `intel`
-- `auth-audit`
-- `victim-status`
-- `savepoint`
-- `report`
-- `board`
-- `resetlab confirm`
+- `triage`
+- `connect [node]`
+- `ls -a`
+- `tree -a`
+- `cat [file]`
+- `find [term]`
+- `grep [term] [path]`
+- `decode [base64|hex] [value]`
+- `quarantine [artifact]`
+- `submit victim [name]`
+- `submit key [token]`
 
-## Safety Note
+## Safety
 
-Everything in this project is simulated for defensive training.
+This is a fictional defensive investigation game.
 
-- No real exploitation
-- No real target contact
-- No system data collection
-- No backend telemetry
+- No real companies
+- No real victims
+- No real phone or company hacking
+- No live network activity
+
+## Run
+
+Open `index.html` in a browser or deploy the folder as static files.
