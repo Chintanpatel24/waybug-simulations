@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WAUBUG Ops Board</title>
+    <link rel="stylesheet" href="css/terminal.css" />
+    <style>
+      body {
+        padding: 20px;
+      }
+
+      .board {
+        display: grid;
+        gap: 12px;
+      }
+
+      .header {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: space-between;
+        gap: 12px;
+        border: 1px solid var(--border);
+        background: rgba(0, 0, 0, 0.8);
+        padding: 16px;
+      }
+
+      .header-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .card,
+      .panel {
+        border: 1px solid var(--border);
+        background: rgba(0, 0, 0, 0.78);
+        padding: 14px;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+
+      td,
+      th {
+        padding: 8px;
+        text-align: left;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      }
+
+      .muted {
+        color: #78c878;
+      }
+
+      .stack {
+        display: grid;
+        gap: 12px;
+      }
+
+      @media (max-width: 1080px) {
+        .grid {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="board">
+      <section class="header">
+        <div>
+          <pre>╔═══════════════════════════════════════════════════════════╗
+║                WAUBUG LOCAL OPS BOARD                    ║
+╚═══════════════════════════════════════════════════════════╝</pre>
+          <div class="muted">Browser-only analytics. No server, no database, no env secrets.</div>
+        </div>
+        <div class="header-actions">
+          <a class="action-link" href="index.html">Back To Simulator</a>
+          <button type="button" class="action-btn" id="export-report">Export Report</button>
+          <button type="button" class="action-btn" id="reset-lab">Reset Lab</button>
+        </div>
+      </section>
+
+      <section class="grid">
+        <div class="card">CURRENT OPERATOR: <strong id="currentOperator">UNASSIGNED</strong></div>
+        <div class="card">TOTAL SCORE: <strong id="totalScore">0</strong></div>
+        <div class="card">BEST SCORE: <strong id="bestScore">0</strong></div>
+        <div class="card">MISSIONS COMPLETED: <strong id="missionsCompleted">0</strong></div>
+        <div class="card">SAVEPOINTS: <strong id="snapshotsSaved">0</strong></div>
+        <div class="card">REPORTS EXPORTED: <strong id="reportsExported">0</strong></div>
+      </section>
+
+      <section class="grid">
+        <article class="panel stack">
+          <div>
+            <h2>Current Session</h2>
+            <pre id="sessionSummary"></pre>
+          </div>
+          <div>
+            <h2>Leaderboard</h2>
+            <table>
+              <thead>
+                <tr>
+                  <th>Operator</th>
+                  <th>Mission</th>
+                  <th>Score</th>
+                  <th>Saved</th>
+                </tr>
+              </thead>
+              <tbody id="leaderboardBody"></tbody>
+            </table>
+          </div>
+        </article>
+
+        <article class="panel">
+          <h2>Savepoints</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Reason</th>
+                <th>Mission</th>
+                <th>Score</th>
+                <th>Progress</th>
+              </tr>
+            </thead>
+            <tbody id="snapshotBody"></tbody>
+          </table>
+        </article>
+
+        <article class="panel">
+          <h2>Recent Events</h2>
+          <pre id="eventFeed"></pre>
+        </article>
+      </section>
+    </div>
+
+    <script src="js/storage.js"></script>
+    <script>
+      function formatTime(value) {
+        if (!value) return "N/A";
+        return new Date(value).toISOString().replace("T", " ").slice(0, 19);
+      }
+
+      function renderBoard() {
+        const state = window.WAUBUG_STORAGE.readCurrentState();
+        const metrics = window.WAUBUG_STORAGE.getMetrics(state);
+        const leaderboard = window.WAUBUG_STORAGE.getLeaderboard(state);
+        const snapshots = window.WAUBUG_STORAGE.getSnapshots();
+        const events = window.WAUBUG_STORAGE.getEvents();
+
+        document.getElementById("currentOperator").textContent = metrics.currentOperator;
+        document.getElementById("totalScore").textContent = metrics.totalScore;
+        document.getElementById("bestScore").textContent = metrics.bestScore;
+        document.getElementById("missionsCompleted").textContent = metrics.missionsCompleted;
+        document.getElementById("snapshotsSaved").textContent = metrics.snapshotsSaved;
+        document.getElementById("reportsExported").textContent = metrics.reportsExported;
+
+        document.getElementById("sessionSummary").textContent = `[CURRENT SESSION]\n\nMission: ${metrics.currentMission}\nTarget: ${metrics.currentTarget}\nLast Active: ${formatTime(metrics.lastActiveAt)}\nLast Export: ${formatTime(metrics.lastExportAt)}\nMode: BROWSER-LOCAL`;
+
+        const leaderboardBody = document.getElementById("leaderboardBody");
+        leaderboardBody.innerHTML = "";
+        leaderboard.forEach((entry) => {
+          const row = document.createElement("tr");
+          row.innerHTML = `<td>${entry.operator || "UNKNOWN"}</td><td>${entry.missionName || entry.missionId || "N/A"}</td><td>${entry.score || 0}</td><td>${formatTime(entry.savedAt)}</td>`;
+          leaderboardBody.appendChild(row);
+        });
+
+        const snapshotBody = document.getElementById("snapshotBody");
+        snapshotBody.innerHTML = "";
+        snapshots.slice(0, 10).forEach((entry) => {
+          const row = document.createElement("tr");
+          row.innerHTML = `<td>${entry.reason}</td><td>${entry.missionName}</td><td>${entry.score}</td><td>${entry.progress}%</td>`;
+          snapshotBody.appendChild(row);
+        });
+
+        document.getElementById("eventFeed").textContent =
+          events.slice(0, 12).map((entry) => `[${formatTime(entry.createdAt).slice(11, 19)}] ${entry.message}`).join("\n") ||
+          "[No local events recorded]";
+      }
+
+      document.getElementById("export-report").addEventListener("click", () => {
+        const state = window.WAUBUG_STORAGE.readCurrentState();
+        state.reportMeta = state.reportMeta || { exports: 0, lastExportAt: null };
+        state.reportMeta.exports = (state.reportMeta.exports || 0) + 1;
+        state.reportMeta.lastExportAt = new Date().toISOString();
+        window.WAUBUG_STORAGE.saveState(state);
+        window.WAUBUG_STORAGE.downloadReport(state);
+        renderBoard();
+      });
+
+      document.getElementById("reset-lab").addEventListener("click", () => {
+        const confirmed = window.confirm("Clear all local simulator data from this browser?");
+        if (!confirmed) return;
+        window.WAUBUG_STORAGE.resetLab();
+        renderBoard();
+      });
+
+      window.addEventListener("storage", renderBoard);
+      renderBoard();
+    </script>
+  </body>
+</html>
