@@ -1,6 +1,6 @@
 window.startEffects = function startEffects() {
   const rain = document.getElementById("matrix-rain");
-  const chars = "01ABCDEF#$%&*";
+  const chars = "01[]{}<>/\\#?NIGHTGLASS";
 
   function renderRain() {
     const width = Math.floor(window.innerWidth / 12);

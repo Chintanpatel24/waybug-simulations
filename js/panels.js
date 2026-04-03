@@ -2,22 +2,22 @@ window.WAUBUG_DEFAULT_STATE = {
   sessionId: window.WAUBUG_STORAGE.resolveSessionId(),
   operator: "GHOST-7",
   operatorCustomized: false,
-  target: "203.0.113.42",
+  target: "relay-ops",
   mission: window.WAUBUG_MISSIONS[0],
-  stealth: 70,
+  stealth: 94,
   score: 0,
-  exfilPreventedGb: 2.3,
-  incidentsClosed: 14,
+  exfilPreventedGb: 0.0,
+  incidentsClosed: 0,
   commandHistory: [],
-  missionProgress: 12,
+  missionProgress: 0,
   completedMissionIds: [],
   virtualVictim: {
-    hostname: "vault-gateway.sim",
+    hostname: "vault-phone-13",
     lockoutThreshold: 5,
-    status: "MONITORED",
+    status: "AT RISK",
     auditRuns: 0,
     authFindings: 0,
-    lastResult: "No credential pressure test executed",
+    lastResult: "Case unopened",
   },
   toolkit: {
     localMode: true,
@@ -28,9 +28,124 @@ window.WAUBUG_DEFAULT_STATE = {
     exports: 0,
     lastExportAt: null,
   },
+  game: {
+    connectedNode: "relay-ops",
+    cwd: "/",
+    discoveredPaths: [],
+    currentFile: "",
+    hintsUsed: 0,
+    quarantined: [],
+    decoded: {
+      alpha: "",
+      beta: "",
+      finalKey: "",
+    },
+    victimName: "",
+    completedObjectives: [],
+    submissions: {
+      victim: false,
+      key: false,
+    },
+  },
 };
 
 window.WAUBUG_STATE = window.WAUBUG_STORAGE.loadState(window.WAUBUG_DEFAULT_STATE);
+
+window.WAUBUG_CASE = {
+  getObjectiveStatuses(state) {
+    const discovered = new Set(state.game.discoveredPaths || []);
+    const quarantined = new Set(state.game.quarantined || []);
+    const targets = window.WAUBUG_SCENARIO.caseTargets;
+
+    return [
+      {
+        id: "workstation-node",
+        label: "Connect to finance-ws17",
+        done: state.game.connectedNode === "finance-ws17" || discovered.has("node:finance-ws17"),
+      },
+      {
+        id: "ransomware-folder",
+        label: "Locate invoice-lock ransomware folder",
+        done: discovered.has(`artifact:${targets.ransomwarePath}`),
+      },
+      {
+        id: "alpha-fragment",
+        label: "Decode alpha fragment",
+        done: state.game.decoded.alpha === targets.alpha,
+      },
+      {
+        id: "phone-node",
+        label: "Connect to vault-phone-13",
+        done: state.game.connectedNode === "vault-phone-13" || discovered.has("node:vault-phone-13"),
+      },
+      {
+        id: "spyware-folder",
+        label: "Locate lensync spyware folder",
+        done: discovered.has(`artifact:${targets.spywarePath}`),
+      },
+      {
+        id: "beta-fragment",
+        label: "Decode beta fragment",
+        done: state.game.decoded.beta === targets.beta,
+      },
+      {
+        id: "victim",
+        label: "Identify the victim",
+        done: state.game.victimName === targets.victimName || state.game.submissions.victim,
+      },
+      {
+        id: "ransomware-quarantine",
+        label: "Quarantine invoice-lock",
+        done: quarantined.has("invoice-lock"),
+      },
+      {
+        id: "spyware-quarantine",
+        label: "Quarantine lensync",
+        done: quarantined.has("lensync"),
+      },
+      {
+        id: "key",
+        label: "Submit final unlock token",
+        done: state.game.submissions.key,
+      },
+    ];
+  },
+
+  syncCaseState(state) {
+    const objectives = this.getObjectiveStatuses(state);
+    const completedIds = objectives.filter((item) => item.done).map((item) => item.id);
+    const progress = Math.round((completedIds.length / objectives.length) * 100);
+    state.game.completedObjectives = completedIds;
+    state.missionProgress = progress;
+
+    if (progress < 35) {
+      state.mission = window.WAUBUG_MISSIONS[0];
+    } else if (progress < 75) {
+      state.mission = window.WAUBUG_MISSIONS[1];
+    } else {
+      state.mission = window.WAUBUG_MISSIONS[2];
+    }
+
+    const node = window.WAUBUG_SCENARIO.nodes[state.game.connectedNode];
+    state.target = node ? node.label : state.game.connectedNode;
+
+    if (state.game.submissions.key && completedIds.includes("ransomware-quarantine") && completedIds.includes("spyware-quarantine")) {
+      state.virtualVictim.status = "RECOVERED";
+      state.virtualVictim.lastResult = "Both payloads quarantined. Victim recovered.";
+      state.incidentsClosed = 1;
+    } else if (completedIds.includes("ransomware-folder") || completedIds.includes("spyware-folder")) {
+      state.virtualVictim.status = "COMPROMISED";
+    } else {
+      state.virtualVictim.status = "AT RISK";
+    }
+
+    if (progress === 100) {
+      state.completedMissionIds = [...new Set([...state.completedMissionIds, state.mission.id])];
+    }
+
+    return objectives;
+  },
+};
 
 window.updatePanels = function updatePanels() {
   const map = document.getElementById("target-map-panel");
@@ -38,32 +153,72 @@ window.updatePanels = function updatePanels() {
   const sniff = document.getElementById("sniffer-panel");
   const event = document.getElementById("event-panel");
   const mission = document.getElementById("mission-panel");
-  const metrics = window.WAUBUG_STORAGE.getMetrics(window.WAUBUG_STATE);
+  const objectives = window.WAUBUG_CASE.syncCaseState(window.WAUBUG_STATE);
   const events = window.WAUBUG_STORAGE.getEvents().slice(0, 8);
+  const nodeList = window.WAUBUG_SCENARIO.availableNodes;
+  const currentNode = window.WAUBUG_SCENARIO.nodes[window.WAUBUG_STATE.game.connectedNode];
+  const discovered = new Set(window.WAUBUG_STATE.game.discoveredPaths || []);
+  const ransomwareToken = [...discovered].find((item) => item === `artifact:${window.WAUBUG_SCENARIO.caseTargets.ransomwarePath}`);
+  const spywareToken = [...discovered].find((item) => item === `artifact:${window.WAUBUG_SCENARIO.caseTargets.spywarePath}`);
+  const discoveredRows = [...window.WAUBUG_STATE.game.discoveredPaths]
+    .slice(-6)
+    .map((item) => `- ${item.replace(/^artifact:/, "").replace(/^node:/, "node ")}`);
 
-  map.textContent = `               [GLOBAL OPERATIONS MAP]\n\n     USA [████████░░] 8 protected hosts\n     EUR [█████░░░░░] 5 protected hosts\n     ASIA[██████░░░░] 6 protected hosts\n\n     Current Target: ${window.WAUBUG_STATE.target}\n     Virtual Victim: ${window.WAUBUG_STATE.virtualVictim.hostname}\n     Status: ${window.WAUBUG_STATE.virtualVictim.status}\n     Mode: BROWSER-LOCAL\n     Risk Level: ██████░░░░ MODERATE`;
+  map.textContent = [
+    "[NODE GRAPH]",
+    "",
+    ...nodeList.map((node) => {
+      const active = node.id === window.WAUBUG_STATE.game.connectedNode ? "ACTIVE" : discovered.has(`node:${node.id}`) ? "SEEN" : "DARK";
+      return `${node.label.padEnd(16, " ")} ${active}`;
+    }),
+    "",
+    `Current Node: ${currentNode?.label || "UNKNOWN"}`,
+    `Current Path: ${window.WAUBUG_STATE.game.cwd}`,
+    `Hint Debt: ${window.WAUBUG_STATE.game.hintsUsed}`,
+  ].join("\n");
 
-  process.textContent = `[ACTIVE MODULES]\n\nPID   MODULE                CPU   STATUS\n1337  edr-agent             3%    RUNNING\n1448  memory-guard          5%    ANALYZING\n1521  siem-correlator      22%    INDEXING\n1602  exfil-blocker         9%    FILTERING\n1703  backup-validator      1%    READY\n\nIncidents Closed: ${window.WAUBUG_STATE.incidentsClosed}\nExfil Prevented: ${window.WAUBUG_STATE.exfilPreventedGb.toFixed(1)} GB\nCredentials Secured: 247\nVictim Lockout: ${window.WAUBUG_STATE.virtualVictim.lockoutThreshold} tries\nSavepoints: ${window.WAUBUG_STATE.toolkit.savepoints}\nBest Score: ${metrics.bestScore}`;
+  process.textContent = [
+    "[EVIDENCE LOCKER]",
+    "",
+    `Ransomware Folder: ${ransomwareToken ? ransomwareToken.replace("artifact:", "") : "UNSEEN"}`,
+    `Spyware Folder: ${spywareToken ? spywareToken.replace("artifact:", "") : "UNSEEN"}`,
+    `Victim: ${window.WAUBUG_STATE.game.victimName || "UNKNOWN"}`,
+    `Alpha: ${window.WAUBUG_STATE.game.decoded.alpha || "UNDECODED"}`,
+    `Beta: ${window.WAUBUG_STATE.game.decoded.beta || "UNDECODED"}`,
+    `Final Key: ${window.WAUBUG_STATE.game.decoded.finalKey || "UNBUILT"}`,
+    `Quarantined: ${window.WAUBUG_STATE.game.quarantined.join(", ") || "NONE"}`,
+  ].join("\n");
 
-  const now = new Date();
-  const t = now.toUTCString().split(" ")[4];
+  sniff.textContent = [
+    "[DIRECTORY WATCH]",
+    "",
+    `Node: ${currentNode?.label || "UNKNOWN"}`,
+    `Path: ${window.WAUBUG_STATE.game.cwd}`,
+    `Last File: ${window.WAUBUG_STATE.game.currentFile || "NONE"}`,
+    "",
+    "Recent Discoveries:",
+    ...(discoveredRows.length ? discoveredRows : ["- none"]),
+  ].join("\n");
 
-  sniff.textContent = `[PACKET CAPTURE - eth0]\n\n${t} TCP 10.0.0.15:445 > 10.0.0.1:4444 [SYN]\n${t} ALERT suspicious SMB handshake\n${t} HTTP POST ${window.WAUBUG_STATE.virtualVictim.hostname}/login [sim]\n${t} AUTH decoy credential spray intercepted\n${t} DNS query anomaly blocked\n${t} DATA egress to C2 prevented`;
+  event.textContent = `[THREAT FEED]\n\n${events.map((entry) => `[${entry.createdAt.slice(11, 19)}] ${entry.message}`).join("\n") || "[No activity yet]"}`;
 
-  const lines = events.map((entry) => `[${entry.createdAt.slice(11, 19)}] ${entry.message}`);
-  event.textContent = `[OPERATION LOG]\n\n${lines.join("\n") || "[No activity yet]"}`;
-
-  const m = window.WAUBUG_STATE.mission;
-  const checks = m.tasks
-    .map((task, i) => (i < Math.floor(window.WAUBUG_STATE.missionProgress / 25) ? `[✓] ${task}` : `[ ] ${task}`))
-    .join("\n");
-
-  mission.textContent = `[OPERATION: ${m.name}]\n\nOBJECTIVES:\n${checks}\n\nSCORE: ${window.WAUBUG_STATE.score}\nPROGRESS: ${window.WAUBUG_STATE.missionProgress}%\nSTEALTH: ${"█".repeat(Math.max(1, Math.floor(window.WAUBUG_STATE.stealth / 10)))}${"░".repeat(10 - Math.max(1, Math.floor(window.WAUBUG_STATE.stealth / 10)))}\nAUTH FINDINGS: ${window.WAUBUG_STATE.virtualVictim.authFindings}\nMISSIONS COMPLETED: ${window.WAUBUG_STATE.completedMissionIds.length}\nLAST VICTIM RESULT: ${window.WAUBUG_STATE.virtualVictim.lastResult}`;
+  mission.textContent = [
+    `[CASE: ${window.WAUBUG_STATE.mission.name}]`,
+    "",
+    `Objective: ${window.WAUBUG_STATE.mission.objective}`,
+    "",
+    ...objectives.map((item) => `${item.done ? "[✓]" : "[ ]"} ${item.label}`),
+    "",
+    `Score: ${window.WAUBUG_STATE.score}`,
+    `Progress: ${window.WAUBUG_STATE.missionProgress}%`,
+    `Victim Status: ${window.WAUBUG_STATE.virtualVictim.status}`,
+    `Last Result: ${window.WAUBUG_STATE.virtualVictim.lastResult}`,
+  ].join("\n");
 
   document.getElementById("status-user").textContent = window.WAUBUG_STATE.operator;
-  document.getElementById("status-target").textContent = window.WAUBUG_STATE.target;
-  document.getElementById("status-mission").textContent = m.name;
-  document.getElementById("status-anon").textContent = "LOCAL";
+  document.getElementById("status-target").textContent = currentNode?.label || window.WAUBUG_STATE.target;
+  document.getElementById("status-mission").textContent = window.WAUBUG_STATE.mission.name.split(" // ")[0];
+  document.getElementById("status-anon").textContent = "BLACK";
 
   window.WAUBUG_STORAGE.saveState(window.WAUBUG_STATE);
 };

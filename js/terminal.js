@@ -1,4 +1,7 @@
 (function () {
+  const SCENARIO = window.WAUBUG_SCENARIO;
+  const TARGETS = SCENARIO.caseTargets;
+
   const bootScreen = document.getElementById("boot-screen");
   const legalScreen = document.getElementById("legal-screen");
   const legalInput = document.getElementById("legal-input");
@@ -8,6 +11,7 @@
 
   const output = document.getElementById("terminal-output");
   const input = document.getElementById("terminal-input");
+  const prompt = document.querySelector(".terminal-input-row span");
 
   let autosaveId = null;
 
@@ -15,35 +19,112 @@
     window.WAUBUG_STORAGE.saveState(window.WAUBUG_STATE);
   }
 
-  function syncSession() {
-    persistState();
+  function currentNodeId() {
+    return window.WAUBUG_STATE.game.connectedNode;
   }
 
-  function startHeartbeat() {
+  function currentNode() {
+    return SCENARIO.nodes[currentNodeId()];
+  }
+
+  function currentPath() {
+    return window.WAUBUG_STATE.game.cwd;
+  }
+
+  function promptPrefix() {
+    return `analyst@${currentNodeId()}:${currentPath()}#`;
+  }
+
+  function updatePrompt() {
+    if (prompt) prompt.textContent = promptPrefix();
+  }
+
+  function setCaseResult(message) {
+    window.WAUBUG_STATE.virtualVictim.lastResult = message;
+  }
+
+  function track(type, message, details = {}) {
+    window.WAUBUG_STORAGE.trackEvent(type, message, details);
+  }
+
+  function addScore(points) {
+    window.WAUBUG_STATE.score += points;
+    window.WAUBUG_STATE.score = Math.max(0, window.WAUBUG_STATE.score);
+  }
+
+  function normalizeName(value) {
+    return String(value || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "");
+  }
+
+  function discover(token, message, points = 0) {
+    const discovered = window.WAUBUG_STATE.game.discoveredPaths;
+    if (discovered.includes(token)) return false;
+    discovered.push(token);
+    if (points) addScore(points);
+    track("discovery", message, { token });
+    return true;
+  }
+
+  function observePath(nodeId, path) {
+    if (!path) return;
+
+    if (path === TARGETS.ransomwarePath || path.startsWith(`${TARGETS.ransomwarePath}/`)) {
+      if (discover(`artifact:${TARGETS.ransomwarePath}`, "Located invoice-lock ransomware folder", 350)) {
+        setCaseResult("Ransomware folder exposed on finance-ws17");
+        alertFlash();
+      }
+    }
+
+    if (path === TARGETS.spywarePath || path.startsWith(`${TARGETS.spywarePath}/`)) {
+      if (discover(`artifact:${TARGETS.spywarePath}`, "Located lensync spyware folder", 350)) {
+        setCaseResult("Spyware collector exposed on vault-phone-13");
+        alertFlash();
+      }
+    }
+
+    if (nodeId === TARGETS.ransomwareNode) {
+      discover(`node:${TARGETS.ransomwareNode}`, "Pivoted into finance-ws17", 120);
+    }
+
+    if (nodeId === TARGETS.spywareNode) {
+      discover(`node:${TARGETS.spywareNode}`, "Pivoted into vault-phone-13", 120);
+    }
+  }
+
+  function observeFile(path, content) {
+    window.WAUBUG_STATE.game.currentFile = path;
+
+    if (path.endsWith("/todo.txt") && String(content).includes("TklHSFQ=")) {
+      track("clue", "Observed alpha fragment on workstation", { path });
+    }
+
+    if (path.endsWith("/agent.json") && String(content).includes("474c415353")) {
+      track("clue", "Observed beta fragment inside spyware config", { path });
+    }
+
+    if (path.endsWith("/owner.txt") && String(content).toLowerCase().includes("maya chen")) {
+      window.WAUBUG_STATE.game.victimName = TARGETS.victimName;
+      track("clue", "Recovered victim identity from phone owner record", { victim: TARGETS.victimName });
+      setCaseResult("Victim identity linked to both endpoints");
+    }
+  }
+
+  function refreshPanels() {
+    updatePrompt();
+    updatePanels();
+  }
+
+  function startAutosave() {
     if (autosaveId) clearInterval(autosaveId);
     autosaveId = setInterval(() => {
       persistState();
     }, 15000);
   }
 
-  function pushMissionUpdate(note = "") {
-    if (note) {
-      window.WAUBUG_STORAGE.trackEvent("mission", note, {
-        missionId: window.WAUBUG_STATE.mission.id,
-        progress: window.WAUBUG_STATE.missionProgress,
-      });
-    }
-    window.WAUBUG_STORAGE.markMissionCompleted(window.WAUBUG_STATE);
-    persistState();
-  }
-
-  function pushCommandLog(command) {
-    window.WAUBUG_STORAGE.trackEvent("command", `Executed command: ${command}`, { command });
-    persistState();
-  }
-
   function markSessionOffline() {
-    window.WAUBUG_STORAGE.trackEvent("session", "Simulator session closed", {
+    track("session", "Nightglass session closed", {
       operator: window.WAUBUG_STATE.operator,
       score: window.WAUBUG_STATE.score,
     });
@@ -53,13 +134,12 @@
   async function savepoint(reason = "manual") {
     window.WAUBUG_STATE.toolkit.savepoints += 1;
     const snapshot = window.WAUBUG_STORAGE.saveSnapshot(window.WAUBUG_STATE, reason);
-    persistState();
     await typeLines([
       `[+] Savepoint stored for ${snapshot.missionName}`,
+      `[*] Current node: ${snapshot.currentNode || currentNodeId()}`,
       `[*] Score preserved at ${snapshot.score}`,
-      "[+] Open the Ops Board to review saved runs",
     ]);
-    updatePanels();
+    refreshPanels();
   }
 
   async function exportReport() {
@@ -67,119 +147,170 @@
     window.WAUBUG_STATE.reportMeta.lastExportAt = new Date().toISOString();
     persistState();
     window.WAUBUG_STORAGE.downloadReport(window.WAUBUG_STATE);
-    window.WAUBUG_STORAGE.trackEvent("report", "Exported local training report", {
+    track("report", "Exported Nightglass report", {
       exports: window.WAUBUG_STATE.reportMeta.exports,
     });
     await typeLines([
-      "[+] Local training report exported",
+      "[+] Nightglass report exported",
       `[*] Reports exported: ${window.WAUBUG_STATE.reportMeta.exports}`,
-      "[+] JSON snapshot downloaded to your browser",
+      "[+] JSON snapshot downloaded locally",
     ]);
-    updatePanels();
-  }
-
-  async function showBriefing() {
-    const mission = window.WAUBUG_STATE.mission;
-    window.WAUBUG_STATE.toolkit.briefingsReviewed += 1;
-    window.WAUBUG_STORAGE.trackEvent("briefing", `Reviewed mission brief for ${mission.name}`, {
-      missionId: mission.id,
-    });
-    await typeLines([
-      `[MISSION BRIEF: ${mission.name}]`,
-      `Objective: ${mission.objective}`,
-      `Reward: ${mission.reward}`,
-      ...mission.tasks.map((task, index) => `${index + 1}. ${task}`),
-    ]);
-    persistState();
-    updatePanels();
-  }
-
-  async function showIntel() {
-    const mission = window.WAUBUG_STATE.mission;
-    const recommendations = [
-      `Focus Host: ${window.WAUBUG_STATE.virtualVictim.hostname}`,
-      `Recommended next step: ${mission.tasks[Math.min(3, Math.floor(window.WAUBUG_STATE.missionProgress / 25))]}`,
-      `Defense posture: ${window.WAUBUG_STATE.stealth >= 80 ? "HARDENED" : "IMPROVE STEALTH HYGIENE"}`,
-      `Snapshots saved: ${window.WAUBUG_STATE.toolkit.savepoints}`,
-      `Completed missions: ${window.WAUBUG_STATE.completedMissionIds.length}`,
-    ];
-    await typeLines(["[TACTICAL INTEL]", ...recommendations]);
-    updatePanels();
-  }
-
-  async function showModules() {
-    const rows = ["[MODULE DIRECTORY]"];
-    Object.entries(window.WAUBUG_MODULES).forEach(([group, commands]) => {
-      rows.push(`${group}: ${commands.join(", ")}`);
-    });
-    await typeLines(rows);
-    updatePanels();
-  }
-
-  async function showConfig() {
-    await typeLines([
-      "[LOCAL CONFIG]",
-      "Mode: Browser-only",
-      "Storage: localStorage + sessionStorage",
-      `Operator Customized: ${window.WAUBUG_STATE.operatorCustomized ? "YES" : "NO"}`,
-      `Reports Exported: ${window.WAUBUG_STATE.reportMeta.exports}`,
-      `Mission Savepoints: ${window.WAUBUG_STATE.toolkit.savepoints}`,
-    ]);
-    updatePanels();
+    refreshPanels();
   }
 
   async function openBoard() {
     window.open("admin.html", "_blank", "noopener");
     await typeLines([
-      "[+] Local Ops Board opened in a new tab",
-      "[*] Review snapshots, reports, and event history there",
+      "[+] Evidence Board opened in a new tab",
+      "[*] Review snapshots, reports, and the local hall of fame there",
     ]);
   }
 
-  async function runVirtualVictimAudit(targetName) {
-    const victim = window.WAUBUG_STATE.virtualVictim;
-    const target = (targetName || victim.hostname).trim() || victim.hostname;
+  function getObjectiveStatuses() {
+    return window.WAUBUG_CASE.syncCaseState(window.WAUBUG_STATE);
+  }
 
-    victim.hostname = target;
-    victim.auditRuns += 1;
-    victim.authFindings += 1;
-    victim.status = "AUTH PRESSURE TESTED";
-    victim.lastResult = "Weak lockout policy identified on decoy victim";
+  async function showBriefing() {
+    window.WAUBUG_STATE.toolkit.briefingsReviewed += 1;
+    track("briefing", "Reviewed Nightglass briefing", { missionId: window.WAUBUG_STATE.mission.id });
+    const briefing = SCENARIO.cat("relay-ops", "/brief/operations.md", "/");
+    await typeLines([`[${SCENARIO.caseName}]`, "", ...(briefing.content || "").split("\n")]);
+    refreshPanels();
+  }
+
+  async function showMissions() {
+    await typeLines([
+      "[CASE ARC]",
+      ...window.WAUBUG_MISSIONS.map((mission, index) => `${index + 1}. ${mission.name} - ${mission.objective}`),
+    ]);
+  }
+
+  async function showVictims() {
+    const roster = SCENARIO.cat("relay-ops", "/intel/staff.csv", "/");
+    await typeLines(["[VIRTUAL VICTIM ROSTER]", "", ...(roster.content || "").split("\n")]);
+  }
+
+  async function showTriage() {
+    const objectives = getObjectiveStatuses();
+    await typeLines([
+      "[TRIAGE]",
+      `Node: ${currentNode().label}`,
+      `Path: ${currentPath()}`,
+      `Hints Used: ${window.WAUBUG_STATE.game.hintsUsed}`,
+      `Quarantined: ${window.WAUBUG_STATE.game.quarantined.join(", ") || "NONE"}`,
+      "",
+      ...objectives.map((item) => `${item.done ? "[✓]" : "[ ]"} ${item.label}`),
+    ]);
+    refreshPanels();
+  }
+
+  async function showIntel() {
+    const discovered = new Set(window.WAUBUG_STATE.game.discoveredPaths);
+    let recommendation = "Read /brief/operations.md on relay-ops, then inspect the host links.";
+
+    if (!discovered.has(`artifact:${TARGETS.ransomwarePath}`)) {
+      recommendation = "The workstation clue chain lives under Maya Chen's Q4 document tree. Hidden folders matter.";
+    } else if (!discovered.has(`artifact:${TARGETS.spywarePath}`)) {
+      recommendation = "The phone node contains a hidden collector path under a media cache.";
+    } else if (!window.WAUBUG_STATE.game.submissions.victim) {
+      recommendation = "Owner records and the staff roster will tell you who matches both endpoints.";
+    } else if (!window.WAUBUG_STATE.game.decoded.alpha || !window.WAUBUG_STATE.game.decoded.beta) {
+      recommendation = "Decode the alpha and beta fragments before attempting the final token.";
+    } else if (window.WAUBUG_STATE.game.quarantined.length < 2) {
+      recommendation = "Both malicious folders must be quarantined before the case is closed.";
+    } else if (!window.WAUBUG_STATE.game.submissions.key) {
+      recommendation = "Submit the combined token with the victim extension appended.";
+    }
 
     await typeLines([
-      `[+] Redirecting to decoy auth node: ${target}`,
-      "[*] Running contained credential resilience drill",
-      "[WARNING] Repeated failed logins reached the alert threshold",
-      "[+] Weak password policy flagged in the virtual victim",
-      "[+] Recommended remediations: MFA, lockout tuning, password policy reset",
+      "[TACTICAL INTEL]",
+      `Current Node: ${currentNode().label}`,
+      `Current Path: ${currentPath()}`,
+      `Recommendation: ${recommendation}`,
     ]);
+  }
 
-    window.WAUBUG_STATE.score += 120;
-    window.WAUBUG_STATE.missionProgress = Math.min(100, window.WAUBUG_STATE.missionProgress + 26);
-    window.WAUBUG_STATE.incidentsClosed += 1;
-    window.WAUBUG_STATE.exfilPreventedGb += 0.4;
+  async function revealHint() {
+    const index = window.WAUBUG_STATE.game.hintsUsed;
+    const hint = SCENARIO.hints[index];
+    if (!hint) {
+      await typeLine("[ERROR] No further hints available", "line-error");
+      return;
+    }
 
-    pushMissionUpdate(`Mission pressure test advanced on ${target}`);
-    updatePanels();
+    window.WAUBUG_STATE.game.hintsUsed += 1;
+    addScore(-90);
+    track("hint", `Hint ${index + 1} used`, { hint });
+    await typeLines([
+      `[HINT ${index + 1}]`,
+      hint,
+      "[WARNING] Hint penalty applied",
+    ]);
+    refreshPanels();
+  }
+
+  async function showStatus() {
+    const objectives = getObjectiveStatuses();
+    await typeLines([
+      "[CASE STATUS]",
+      `Case: ${SCENARIO.caseName}`,
+      `Operator: ${window.WAUBUG_STATE.operator}`,
+      `Node: ${currentNode().label}`,
+      `Path: ${currentPath()}`,
+      `Progress: ${window.WAUBUG_STATE.missionProgress}%`,
+      `Completed Objectives: ${objectives.filter((item) => item.done).length}/${objectives.length}`,
+      `Victim Status: ${window.WAUBUG_STATE.virtualVictim.status}`,
+      `Last Result: ${window.WAUBUG_STATE.virtualVictim.lastResult}`,
+    ]);
+    refreshPanels();
+  }
+
+  function decodeBase64(value) {
+    return window.atob(value);
+  }
+
+  function decodeHex(value) {
+    const clean = value.replace(/\s+/g, "");
+    if (!/^[0-9a-fA-F]+$/.test(clean) || clean.length % 2 !== 0) {
+      throw new Error("Invalid hex input");
+    }
+
+    let result = "";
+    for (let i = 0; i < clean.length; i += 2) {
+      result += String.fromCharCode(parseInt(clean.slice(i, i + 2), 16));
+    }
+    return result;
+  }
+
+  function parseOptionArgs(args) {
+    const flags = new Set();
+    const rest = [];
+    args.forEach((arg) => {
+      if (arg.startsWith("-")) {
+        arg.slice(1).split("").forEach((char) => flags.add(char));
+        return;
+      }
+      rest.push(arg);
+    });
+    return { flags, rest };
   }
 
   const bootLines = [
-    "[WAUBUG SIMULATIONS v2.4.7]",
-    "Initializing secure environment...",
-    "Loading defensive frameworks... OK",
-    "Establishing encrypted channels... OK",
-    "Mounting virtual file system... OK",
-    "Starting training infrastructure... OK",
+    "[NIGHTGLASS // BLACK VAULT]",
+    "Mounting isolated case memory...",
+    "Loading node topology... OK",
+    "Indexing hidden paths... OK",
+    "Decryptor sandbox... READY",
+    "Quarantine pipeline... READY",
     "",
-    "WARNING: This is a controlled simulation environment",
-    "All activities are monitored and logged",
-    "No real systems will be harmed",
+    "This is a fictional breach investigation challenge.",
+    "Expect hidden folders, encoded clues, and cross-node evidence.",
     "",
-    "Type 'start' to begin your operation",
-    "Type 'help' for available commands",
-    "Type 'missions' to view objectives",
+    "Type 'start' to begin the case",
+    "Type 'help' for commands",
+    "Type 'brief' for the file",
     "",
-    "root@waubug:~#",
+    "analyst@nightglass:~#",
   ];
 
   function tickClock() {
@@ -196,9 +327,9 @@
     if (className) node.className = className;
     output.appendChild(node);
 
-    for (let i = 0; i < line.length; i += 1) {
-      node.textContent += line[i];
-      await sleep(12);
+    for (let index = 0; index < line.length; index += 1) {
+      node.textContent += line[index];
+      await sleep(8);
     }
 
     output.scrollTop = output.scrollHeight;
@@ -206,7 +337,13 @@
 
   async function typeLines(lines) {
     for (const line of lines) {
-      const cls = line.includes("ERROR") ? "line-error" : line.includes("WARNING") ? "line-warn" : line.includes("[+]") ? "line-success" : "";
+      const cls = line.includes("ERROR")
+        ? "line-error"
+        : line.includes("WARNING")
+          ? "line-warn"
+          : line.includes("[+]")
+            ? "line-success"
+            : "";
       await typeLine(line, cls);
     }
   }
@@ -215,11 +352,296 @@
     output.innerHTML = "";
   }
 
-  function showMissions() {
-    return [
-      "Available Operations:",
-      ...window.WAUBUG_MISSIONS.map((m, i) => `${i + 1}. ${m.name} - ${m.objective} (Reward: ${m.reward})`),
-    ];
+  async function handleConnect(target) {
+    if (!target) {
+      await typeLines([
+        "[AVAILABLE NODES]",
+        ...SCENARIO.availableNodes.map((node) => `${node.id}   ${node.description}`),
+      ]);
+      return;
+    }
+
+    const node = SCENARIO.nodes[target];
+    if (!node) {
+      await typeLine("[ERROR] Unknown node id", "line-error");
+      return;
+    }
+
+    window.WAUBUG_STATE.game.connectedNode = target;
+    window.WAUBUG_STATE.game.cwd = "/";
+    observePath(target, "/");
+    setCaseResult(`Pivoted into ${node.label}`);
+    await typeLines([
+      `[+] Connected to ${node.label}`,
+      `[*] ${node.description}`,
+    ]);
+    refreshPanels();
+  }
+
+  async function handleList(args) {
+    const { flags, rest } = parseOptionArgs(args);
+    const pathArg = rest[0] || ".";
+    const listing = SCENARIO.list(currentNodeId(), pathArg, currentPath(), { all: flags.has("a") });
+    if (listing.error) {
+      await typeLine(`[ERROR] ${listing.error}`, "line-error");
+      return;
+    }
+
+    observePath(currentNodeId(), listing.path);
+    const rows = listing.entries.length
+      ? listing.entries.map((entry) => `${entry.type === "dir" ? "dir " : "file"} ${entry.name}${entry.type === "dir" ? "/" : ""}`)
+      : ["[empty]"];
+
+    await typeLines([`[LS ${listing.path}]`, ...rows]);
+    refreshPanels();
+  }
+
+  async function handleCd(target) {
+    const pathArg = target || "/";
+    const found = SCENARIO.traverse(currentNodeId(), pathArg, currentPath());
+    if (found.error) {
+      await typeLine(`[ERROR] ${found.error}`, "line-error");
+      return;
+    }
+    if (found.entry.type !== "dir") {
+      await typeLine("[ERROR] Target is not a directory", "line-error");
+      return;
+    }
+
+    window.WAUBUG_STATE.game.cwd = found.path;
+    observePath(currentNodeId(), found.path);
+    refreshPanels();
+    await typeLine(`[+] cwd => ${found.path}`, "line-success");
+  }
+
+  async function handleCat(target) {
+    if (!target) {
+      await typeLine("[ERROR] cat requires a file path", "line-error");
+      return;
+    }
+
+    const result = SCENARIO.cat(currentNodeId(), target, currentPath());
+    if (result.error) {
+      await typeLine(`[ERROR] ${result.error}`, "line-error");
+      return;
+    }
+
+    observePath(currentNodeId(), result.path);
+    observeFile(result.path, result.content);
+    await typeLines([`[CAT ${result.path}]`, "", ...String(result.content).split("\n")]);
+    refreshPanels();
+  }
+
+  async function handleTree(args) {
+    const { flags, rest } = parseOptionArgs(args);
+    const target = rest[0] || ".";
+    const result = SCENARIO.renderTree(currentNodeId(), target, currentPath(), { all: flags.has("a") });
+    if (result.error) {
+      await typeLine(`[ERROR] ${result.error}`, "line-error");
+      return;
+    }
+
+    observePath(currentNodeId(), result.path);
+    await typeLines(result.lines);
+    refreshPanels();
+  }
+
+  async function handleFind(term) {
+    if (!term) {
+      await typeLine("[ERROR] find requires a search term", "line-error");
+      return;
+    }
+
+    const result = SCENARIO.searchNames(currentNodeId(), term, currentPath());
+    if (result.error) {
+      await typeLine(`[ERROR] ${result.error}`, "line-error");
+      return;
+    }
+
+    result.results.forEach((entry) => observePath(currentNodeId(), entry.path));
+    await typeLines([
+      `[FIND ${term}]`,
+      ...(result.results.length
+        ? result.results.map((entry) => `${entry.type === "dir" ? "dir " : "file"} ${entry.path}`)
+        : ["[no matches]"]),
+    ]);
+    refreshPanels();
+  }
+
+  async function handleGrep(needle, targetPath) {
+    if (!needle) {
+      await typeLine("[ERROR] grep requires a search term", "line-error");
+      return;
+    }
+
+    const result = SCENARIO.grepContents(currentNodeId(), needle, targetPath || ".", currentPath());
+    if (result.error) {
+      await typeLine(`[ERROR] ${result.error}`, "line-error");
+      return;
+    }
+
+    await typeLines([
+      `[GREP ${needle}]`,
+      ...(result.matches.length ? result.matches : ["[no matches]"]),
+    ]);
+  }
+
+  async function handleDecode(mode, value) {
+    if (!mode || !value) {
+      await typeLine("[ERROR] decode requires a mode and a string", "line-error");
+      return;
+    }
+
+    try {
+      let decoded = "";
+      if (mode === "base64") decoded = decodeBase64(value);
+      else if (mode === "hex") decoded = decodeHex(value);
+      else {
+        await typeLine("[ERROR] Supported modes: base64, hex", "line-error");
+        return;
+      }
+
+      if (decoded === TARGETS.alpha && !window.WAUBUG_STATE.game.decoded.alpha) {
+        window.WAUBUG_STATE.game.decoded.alpha = decoded;
+        addScore(280);
+        track("decode", "Decoded alpha fragment", { value: decoded });
+      }
+
+      if (decoded === TARGETS.beta && !window.WAUBUG_STATE.game.decoded.beta) {
+        window.WAUBUG_STATE.game.decoded.beta = decoded;
+        addScore(280);
+        track("decode", "Decoded beta fragment", { value: decoded });
+      }
+
+      await typeLines([
+        `[DECODE ${mode}]`,
+        decoded,
+      ]);
+      refreshPanels();
+    } catch (error) {
+      await typeLine(`[ERROR] ${error.message}`, "line-error");
+    }
+  }
+
+  async function handleQuarantine(target) {
+    const artifact = String(target || "").toLowerCase();
+    if (!artifact) {
+      await typeLine("[ERROR] quarantine requires an artifact id", "line-error");
+      return;
+    }
+
+    const map = {
+      "invoice-lock": {
+        node: TARGETS.ransomwareNode,
+        path: TARGETS.ransomwarePath,
+      },
+      lensync: {
+        node: TARGETS.spywareNode,
+        path: TARGETS.spywarePath,
+      },
+    };
+
+    const resolved = map[artifact] || Object.values(map).find((item) => item.path === target);
+    if (!resolved) {
+      await typeLine("[ERROR] Unknown artifact. Use invoice-lock or lensync.", "line-error");
+      return;
+    }
+
+    if (currentNodeId() !== resolved.node) {
+      await typeLine(`[ERROR] Connect to ${resolved.node} before quarantining this artifact`, "line-error");
+      return;
+    }
+
+    if (!window.WAUBUG_STATE.game.discoveredPaths.includes(`artifact:${resolved.path}`)) {
+      await typeLine("[ERROR] Artifact not yet located", "line-error");
+      return;
+    }
+
+    if (window.WAUBUG_STATE.game.quarantined.includes(artifact)) {
+      await typeLine("[ERROR] Artifact already quarantined", "line-error");
+      return;
+    }
+
+    window.WAUBUG_STATE.game.quarantined.push(artifact);
+    addScore(420);
+    if (artifact === "invoice-lock") {
+      window.WAUBUG_STATE.exfilPreventedGb += 1.6;
+    }
+    if (artifact === "lensync") {
+      window.WAUBUG_STATE.exfilPreventedGb += 0.8;
+    }
+    track("containment", `Quarantined ${artifact}`, { artifact });
+    setCaseResult(`${artifact} quarantined`);
+    await typeLines([
+      `[+] ${artifact} moved to quarantine`,
+      "[*] Persistence cut off inside the simulation",
+    ]);
+    refreshPanels();
+  }
+
+  async function handleSubmit(kind, value) {
+    if (!kind || !value) {
+      await typeLine("[ERROR] submit requires a type and value", "line-error");
+      return;
+    }
+
+    if (kind === "victim") {
+      const inputName = normalizeName(value);
+      if (inputName !== normalizeName(TARGETS.victimName) && inputName !== normalizeName(TARGETS.victimAlias)) {
+        await typeLine("[ERROR] Victim identity rejected", "line-error");
+        return;
+      }
+
+      if (!window.WAUBUG_STATE.game.submissions.victim) {
+        window.WAUBUG_STATE.game.submissions.victim = true;
+        window.WAUBUG_STATE.game.victimName = TARGETS.victimName;
+        addScore(360);
+        track("submission", "Submitted correct victim identity", { victim: TARGETS.victimName });
+      }
+
+      setCaseResult("Victim identity confirmed");
+      await typeLines([
+        `[+] Victim confirmed: ${TARGETS.victimName}`,
+        "[*] Extension 47 linked to both compromised endpoints",
+      ]);
+      refreshPanels();
+      return;
+    }
+
+    if (kind === "key") {
+      const candidate = String(value).trim().toUpperCase();
+      if (candidate !== TARGETS.finalKey) {
+        await typeLine("[ERROR] Unlock token rejected", "line-error");
+        return;
+      }
+
+      if (!window.WAUBUG_STATE.game.quarantined.includes("invoice-lock") || !window.WAUBUG_STATE.game.quarantined.includes("lensync")) {
+        await typeLine("[ERROR] Quarantine both artifacts before closing the key submission", "line-error");
+        return;
+      }
+
+      window.WAUBUG_STATE.game.submissions.key = true;
+      window.WAUBUG_STATE.game.decoded.finalKey = TARGETS.finalKey;
+      addScore(500);
+      track("submission", "Submitted final unlock token", { key: TARGETS.finalKey });
+      setCaseResult("Unlock token accepted. Case closed.");
+      await typeLines([
+        `[+] Unlock token accepted: ${TARGETS.finalKey}`,
+        "[+] NIGHTGLASS case closed in the lab",
+      ]);
+      refreshPanels();
+      return;
+    }
+
+    await typeLine("[ERROR] submit supports: victim, key", "line-error");
+  }
+
+  async function showLeaderboard() {
+    const leaderboard = window.WAUBUG_STORAGE.getLeaderboard(window.WAUBUG_STATE);
+    await typeLines([
+      "[LOCAL HALL OF FAME]",
+      ...leaderboard.map((entry, index) => `${index + 1}. ${entry.operator || "UNKNOWN"}   ${entry.score || 0}   ${entry.missionName || entry.missionId}`),
+    ]);
   }
 
   async function processCommand(raw) {
@@ -228,160 +650,33 @@
 
     window.WAUBUG_STATE.commandHistory.push(line);
     window.WAUBUG_STATE.commandHistory = window.WAUBUG_STATE.commandHistory.slice(-40);
-    await typeLine(`root@waubug:~# ${line}`, "line-highlight");
-    pushCommandLog(line);
-    await sleep(200 + Math.floor(Math.random() * 1200));
 
-    const [cmd, ...args] = line.split(/\s+/);
-    const arg = args.join(" ");
+    await typeLine(`${promptPrefix()} ${line}`, "line-highlight");
+    track("command", `Executed command: ${line}`, { command: line });
+    await sleep(120 + Math.floor(Math.random() * 420));
+
+    const [cmdRaw, ...rest] = line.split(/\s+/);
+    const cmd = cmdRaw.toLowerCase();
+    const arg = rest.join(" ");
 
     if (cmd === "clear") {
       clearOutput();
-      updatePanels();
+      refreshPanels();
       return;
     }
 
     if (cmd === "help") {
       await typeLines(window.WAUBUG_HELP);
-      updatePanels();
-      return;
-    }
-
-    if (cmd === "missions") {
-      await typeLines(showMissions());
-      updatePanels();
-      return;
-    }
-
-    if (cmd === "select") {
-      const idx = Number(arg) - 1;
-      if (window.WAUBUG_MISSIONS[idx]) {
-        window.WAUBUG_STATE.mission = window.WAUBUG_MISSIONS[idx];
-        window.WAUBUG_STATE.missionProgress = 0;
-        window.WAUBUG_STATE.target = [
-          "203.0.113.42",
-          "vault-gateway.sim",
-          "restore-cluster.sim",
-          "hunt-grid.sim",
-          "ics-core.sim",
-          "blue-command.sim",
-        ][idx] || "training.local";
-        syncSession();
-        window.WAUBUG_STORAGE.trackEvent("mission", `Loaded mission ${window.WAUBUG_STATE.mission.name}`, {
-          missionId: window.WAUBUG_STATE.mission.id,
-        });
-        await typeLines([
-          `[MISSION LOADED: ${window.WAUBUG_STATE.mission.name}]`,
-          `Objective: ${window.WAUBUG_STATE.mission.objective}`,
-        ]);
-      } else {
-        await typeLine("[ERROR] Invalid mission index", "line-error");
-      }
-      updatePanels();
-      return;
-    }
-
-    if (cmd === "status") {
-      await typeLines([
-        "[WAUBUG STATUS]",
-        "Mode: Defensive Training",
-        `Detection Confidence: ${Math.min(99, 82 + window.WAUBUG_STATE.virtualVictim.authFindings * 3)}%`,
-        `Stealth Hygiene: ${window.WAUBUG_STATE.stealth}%`,
-        `Virtual Victim: ${window.WAUBUG_STATE.virtualVictim.hostname}`,
-        `Victim Status: ${window.WAUBUG_STATE.virtualVictim.status}`,
-      ]);
-      updatePanels();
       return;
     }
 
     if (cmd === "start") {
       await typeLines([
-        "[WAUBUG SIMULATIONS]",
-        "Select your codename with: whoami [name]",
-        "Use brief to inspect the mission plan.",
-        "Use missions to begin.",
+        "[NIGHTGLASS CASE OPENED]",
+        "Begin on relay-ops.",
+        "Use brief, ls, cat, connect, tree -a, and decode to progress.",
       ]);
-      updatePanels();
-      return;
-    }
-
-    if (cmd === "whoami") {
-      if (arg) {
-        window.WAUBUG_STATE.operator = arg.toUpperCase();
-        window.WAUBUG_STATE.operatorCustomized = true;
-      }
-      syncSession();
-      window.WAUBUG_STORAGE.trackEvent("identity", `Operator set to ${window.WAUBUG_STATE.operator}`, {
-        operator: window.WAUBUG_STATE.operator,
-      });
-      await typeLines([
-        `Operator: ${window.WAUBUG_STATE.operator}`,
-        `Mission: ${window.WAUBUG_STATE.mission.name}`,
-        `Score: ${window.WAUBUG_STATE.score}`,
-      ]);
-      updatePanels();
-      return;
-    }
-
-    if (cmd === "matrix") {
-      await typeLine("[+] Matrix overlay intensified", "line-success");
-      document.getElementById("matrix-rain").style.opacity = "0.2";
-      updatePanels();
-      return;
-    }
-
-    if (cmd === "ghost") {
-      window.WAUBUG_STATE.stealth = Math.min(100, window.WAUBUG_STATE.stealth + 12);
-      await typeLine("[+] Stealth hygiene increased", "line-success");
-      window.WAUBUG_STORAGE.trackEvent("tuning", "Stealth hygiene increased", {
-        stealth: window.WAUBUG_STATE.stealth,
-      });
-      syncSession();
-      updatePanels();
-      return;
-    }
-
-    if (cmd === "god") {
-      window.WAUBUG_STATE.score += 250;
-      window.WAUBUG_STATE.missionProgress = 100;
-      await typeLines(["[+] Training override enabled", "[+] All missions unlocked in sandbox"]);
-      pushMissionUpdate("Sandbox override marked the mission complete");
-      updatePanels();
-      return;
-    }
-
-    if (cmd === "history") {
-      const list = window.WAUBUG_STATE.commandHistory.slice(-20);
-      await typeLines(list.length ? list : ["[No command history]"]);
-      updatePanels();
-      return;
-    }
-
-    if (cmd === "leaderboard") {
-      const leaderboard = window.WAUBUG_STORAGE.getLeaderboard(window.WAUBUG_STATE);
-      const rows = ["LOCAL HALL OF FAME"];
-      leaderboard.forEach((entry, idx) => {
-        rows.push(`${idx + 1}. ${entry.operator || "UNKNOWN"}   ${entry.score || 0}   ${entry.missionName || entry.missionId}`);
-      });
-      rows.push(`Snapshots saved: ${window.WAUBUG_STORAGE.getSnapshots().length}`);
-      await typeLines(rows);
-      updatePanels();
-      return;
-    }
-
-    if (cmd === "wallet") {
-      await typeLines([
-        "Training Credits: 0.742 BTC-SIM",
-        "BTC/USD (sim): 63,402.50",
-      ]);
-      updatePanels();
-      return;
-    }
-
-    if (cmd === "hack-the-planet" || cmd === "konami") {
-      await typeLine("[+] Easter egg activated", "line-success");
-      alertFlash();
-      updatePanels();
+      refreshPanels();
       return;
     }
 
@@ -390,18 +685,111 @@
       return;
     }
 
+    if (cmd === "triage") {
+      await showTriage();
+      return;
+    }
+
+    if (cmd === "hint") {
+      await revealHint();
+      return;
+    }
+
     if (cmd === "intel") {
       await showIntel();
       return;
     }
 
-    if (cmd === "modules") {
-      await showModules();
+    if (cmd === "missions") {
+      await showMissions();
       return;
     }
 
-    if (cmd === "config") {
-      await showConfig();
+    if (cmd === "victims") {
+      await showVictims();
+      return;
+    }
+
+    if (cmd === "status") {
+      await showStatus();
+      return;
+    }
+
+    if (cmd === "whoami") {
+      if (arg) {
+        window.WAUBUG_STATE.operator = arg.toUpperCase();
+        window.WAUBUG_STATE.operatorCustomized = true;
+        track("identity", `Operator set to ${window.WAUBUG_STATE.operator}`, { operator: window.WAUBUG_STATE.operator });
+      }
+      await typeLines([
+        `Operator: ${window.WAUBUG_STATE.operator}`,
+        `Node: ${currentNode().label}`,
+        `Score: ${window.WAUBUG_STATE.score}`,
+      ]);
+      refreshPanels();
+      return;
+    }
+
+    if (cmd === "pwd") {
+      await typeLine(currentPath());
+      return;
+    }
+
+    if (cmd === "connect") {
+      await handleConnect(rest[0]);
+      return;
+    }
+
+    if (cmd === "ls") {
+      await handleList(rest);
+      return;
+    }
+
+    if (cmd === "cd") {
+      await handleCd(arg);
+      return;
+    }
+
+    if (cmd === "cat") {
+      await handleCat(arg);
+      return;
+    }
+
+    if (cmd === "tree") {
+      await handleTree(rest);
+      return;
+    }
+
+    if (cmd === "find") {
+      await handleFind(arg);
+      return;
+    }
+
+    if (cmd === "grep") {
+      const [needle, maybePath] = rest;
+      await handleGrep(needle, maybePath);
+      return;
+    }
+
+    if (cmd === "decode") {
+      const [mode, ...valueParts] = rest;
+      await handleDecode(mode, valueParts.join(" "));
+      return;
+    }
+
+    if (cmd === "quarantine") {
+      await handleQuarantine(arg);
+      return;
+    }
+
+    if (cmd === "submit") {
+      const [kind, ...valueParts] = rest;
+      await handleSubmit(kind, valueParts.join(" "));
+      return;
+    }
+
+    if (cmd === "leaderboard") {
+      await showLeaderboard();
       return;
     }
 
@@ -420,6 +808,18 @@
       return;
     }
 
+    if (cmd === "history") {
+      const list = window.WAUBUG_STATE.commandHistory.slice(-20);
+      await typeLines(list.length ? list : ["[No command history]"]);
+      return;
+    }
+
+    if (cmd === "matrix") {
+      await typeLine("[+] Noise layer intensified", "line-success");
+      document.getElementById("matrix-rain").style.opacity = "0.12";
+      return;
+    }
+
     if (cmd === "resetlab") {
       if (arg !== "confirm") {
         await typeLines([
@@ -431,30 +831,13 @@
 
       window.WAUBUG_STORAGE.resetLab();
       window.WAUBUG_STATE = window.WAUBUG_STORAGE.loadState(window.WAUBUG_DEFAULT_STATE);
+      setCaseResult("Case reset");
+      clearOutput();
       await typeLines([
-        "[+] Local simulator data cleared",
-        "[+] Fresh browser-only workspace loaded",
+        "[+] Nightglass reset",
+        "[+] Fresh case state loaded",
       ]);
-      updatePanels();
-      return;
-    }
-
-    if (cmd === "victim-status") {
-      const victim = window.WAUBUG_STATE.virtualVictim;
-      await typeLines([
-        "[VIRTUAL VICTIM STATUS]",
-        `Hostname: ${victim.hostname}`,
-        `Shield State: ${victim.status}`,
-        `Lockout Threshold: ${victim.lockoutThreshold} failed attempts`,
-        `Audit Runs: ${victim.auditRuns}`,
-        `Last Result: ${victim.lastResult}`,
-      ]);
-      updatePanels();
-      return;
-    }
-
-    if (cmd === "auth-audit" || cmd === "bruteforce-sim") {
-      await runVirtualVictimAudit(arg);
+      refreshPanels();
       return;
     }
 
@@ -465,55 +848,25 @@
       return;
     }
 
-    if (window.WAUBUG_FAKE_RESPONSES[cmd]) {
-      await typeLines(window.WAUBUG_FAKE_RESPONSES[cmd]);
-      window.WAUBUG_STATE.score += 35;
-      window.WAUBUG_STATE.missionProgress = Math.min(100, window.WAUBUG_STATE.missionProgress + 12);
-      if (Math.random() < 0.18) {
-        await typeLines([
-          "[ERROR] Connection refused",
-          "[*] Retrying with secure relay...",
-          "[+] Connection established",
-        ]);
-      }
-      pushMissionUpdate(`Progress updated by ${cmd}`);
-      syncSession();
-      updatePanels();
-      return;
-    }
-
-    const allCommands = Object.values(window.WAUBUG_MODULES).flat();
-    if (allCommands.includes(cmd)) {
-      await typeLines([
-        `[+] ${cmd} module loaded in simulation mode`,
-        "[*] This command is restricted to defensive educational workflows",
-      ]);
-      window.WAUBUG_STATE.score += 15;
-      window.WAUBUG_STATE.missionProgress = Math.min(100, window.WAUBUG_STATE.missionProgress + 6);
-      pushMissionUpdate(`Utility module inspected: ${cmd}`);
-      syncSession();
-      updatePanels();
-      return;
-    }
-
     await typeLine(`[ERROR] Command not found: ${cmd}`, "line-error");
   }
 
   async function runBootSequence() {
     for (const line of bootLines) {
       bootText.textContent += `${line}\n`;
-      await sleep(120);
+      await sleep(80);
     }
-    await sleep(500);
+    await sleep(450);
     bootScreen.classList.remove("active");
     bootScreen.classList.add("hidden");
     legalScreen.classList.remove("hidden");
     legalInput.focus();
   }
 
-  legalInput.addEventListener("keydown", async (ev) => {
-    if (ev.key !== "Enter") return;
+  legalInput.addEventListener("keydown", async (event) => {
+    if (event.key !== "Enter") return;
     const value = legalInput.value.trim().toLowerCase();
+
     if (value === "accept") {
       legalScreen.classList.add("hidden");
       workspace.classList.remove("hidden");
@@ -521,34 +874,34 @@
       startEffects();
       tickClock();
       setInterval(tickClock, 1000);
-      syncSession();
-      startHeartbeat();
-      updatePanels();
+      discover("node:relay-ops", "Opened Nightglass relay node", 80);
+      startAutosave();
+      updatePrompt();
+      refreshPanels();
+      track("session", "Nightglass session started", { operator: window.WAUBUG_STATE.operator });
       typeLines([
-        "[WAUBUG SIMULATIONS ONLINE]",
-        "Browser-only training environment initialized",
-        "Use auth-audit to test the virtual victim controls",
-        "Use board to open the local ops board",
-        "Type help to view commands",
+        "[NIGHTGLASS ONLINE]",
+        "Fictional breach investigation challenge loaded",
+        "Use brief to open the case file",
+        "Use triage to view objectives",
       ]);
-      window.WAUBUG_STORAGE.trackEvent("session", "Simulator session started", {
-        operator: window.WAUBUG_STATE.operator,
-      });
       return;
     }
+
     if (value === "exit") {
       window.location.href = "about:blank";
       return;
     }
+
     legalInput.value = "";
   });
 
-  input.addEventListener("keydown", async (ev) => {
-    if (ev.key !== "Enter") return;
-    const cmd = input.value;
+  input.addEventListener("keydown", async (event) => {
+    if (event.key !== "Enter") return;
+    const command = input.value;
     input.value = "";
     input.disabled = true;
-    await processCommand(cmd);
+    await processCommand(command);
     input.disabled = false;
     input.focus();
   });
@@ -558,8 +911,8 @@
     if (!action) return;
 
     if (action === "brief") await showBriefing();
-    if (action === "savepoint") await savepoint("toolbar");
-    if (action === "report") await exportReport();
+    if (action === "triage") await showTriage();
+    if (action === "hint") await revealHint();
   });
 
   window.addEventListener("pagehide", markSessionOffline);

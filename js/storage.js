@@ -59,6 +59,27 @@
         ...baseState.reportMeta,
         ...(savedState?.reportMeta || {}),
       },
+      game: {
+        ...baseState.game,
+        ...(savedState?.game || {}),
+        discoveredPaths: Array.isArray(savedState?.game?.discoveredPaths)
+          ? [...new Set(savedState.game.discoveredPaths)]
+          : [...(baseState.game?.discoveredPaths || [])],
+        quarantined: Array.isArray(savedState?.game?.quarantined)
+          ? [...new Set(savedState.game.quarantined)]
+          : [...(baseState.game?.quarantined || [])],
+        completedObjectives: Array.isArray(savedState?.game?.completedObjectives)
+          ? [...new Set(savedState.game.completedObjectives)]
+          : [...(baseState.game?.completedObjectives || [])],
+        decoded: {
+          ...(baseState.game?.decoded || {}),
+          ...(savedState?.game?.decoded || {}),
+        },
+        submissions: {
+          ...(baseState.game?.submissions || {}),
+          ...(savedState?.game?.submissions || {}),
+        },
+      },
     };
   }
 
@@ -79,6 +100,14 @@
       virtualVictim: { ...state.virtualVictim },
       toolkit: { ...state.toolkit },
       reportMeta: { ...state.reportMeta },
+      game: {
+        ...state.game,
+        discoveredPaths: [...new Set(state.game?.discoveredPaths || [])],
+        quarantined: [...new Set(state.game?.quarantined || [])],
+        completedObjectives: [...new Set(state.game?.completedObjectives || [])],
+        decoded: { ...(state.game?.decoded || {}) },
+        submissions: { ...(state.game?.submissions || {}) },
+      },
       lastActiveAt: new Date().toISOString(),
     };
   }
@@ -128,6 +157,9 @@
       exfilPreventedGb: state.exfilPreventedGb,
       virtualVictim: { ...state.virtualVictim },
       commandCount: (state.commandHistory || []).length,
+      currentNode: state.game?.connectedNode || "",
+      currentPath: state.game?.cwd || "/",
+      quarantined: [...(state.game?.quarantined || [])],
     };
 
     snapshots.unshift(snapshot);

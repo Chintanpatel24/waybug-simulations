@@ -2,9 +2,9 @@
   position: fixed;
   inset: 0;
   pointer-events: none;
-  background-image: linear-gradient(rgba(0, 255, 0, 0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(0, 255, 0, 0.03) 1px, transparent 1px);
-  background-size: 36px 36px;
+  background-image: linear-gradient(rgba(255, 255, 255, 0.018) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.018) 1px, transparent 1px);
+  background-size: 44px 44px;
   z-index: 0;
 }
 
@@ -12,9 +12,9 @@
   position: fixed;
   inset: 0;
   pointer-events: none;
-  opacity: 0.08;
+  opacity: 0.05;
   z-index: 1;
-  color: #00ff66;
+  color: #94a3b8;
   font-size: 13px;
   overflow: hidden;
 }
@@ -28,8 +28,8 @@
     to bottom,
     rgba(255, 255, 255, 0.015),
     rgba(255, 255, 255, 0.015) 1px,
-    rgba(0, 0, 0, 0.03) 2px,
-    rgba(0, 0, 0, 0.03) 4px
+    rgba(0, 0, 0, 0.04) 2px,
+    rgba(0, 0, 0, 0.04) 4px
   );
 }
 
